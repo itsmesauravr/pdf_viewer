@@ -96,7 +96,8 @@ class PdfPage extends StatelessWidget {
     try {
       var response = await client.get(Uri.parse(kPdfUrl));
       if (response.statusCode == 200) {
-        File file = File("${savedDir.path}/downloaded_file.pdf");
+        File file = File(
+            "${savedDir.path}/${DateTime.now().microsecondsSinceEpoch}.pdf");
         await file.writeAsBytes(response.bodyBytes);
         await _saveFilePath(file.path);
         ScaffoldMessenger.of(context).showSnackBar(
