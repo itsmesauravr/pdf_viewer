@@ -1,18 +1,23 @@
-// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously, must_be_immutable
 import 'dart:io';
 
-import 'package:another_flushbar/flushbar_helper.dart';
-import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
-import 'package:pdf_viewer_app/presentation/core/utils/app_url.dart';
 import 'package:pdf_viewer_app/presentation/pdf/widgets/pdf_over_view_page.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/utils/app_color.dart';
 import '../core/utils/app_style.dart';
+import '../core/utils/app_url.dart';
 
 class PdfPage extends StatelessWidget {
   PdfPage({super.key});
+
+  String? filename;
+  String? path;
 
   final ValueNotifier<bool> isLoading = ValueNotifier<bool>(false);
   @override
@@ -51,7 +56,9 @@ class PdfPage extends StatelessWidget {
               CircleAvatar(
                 backgroundColor: kPurpleColor,
                 child: IconButton(
-                  onPressed: () {},
+                  onPressed: () async {
+                    await _shareFile();
+                  },
                   icon: const Icon(Icons.share),
                   color: kPrimaryColor,
                 ),
@@ -60,30 +67,7 @@ class PdfPage extends StatelessWidget {
                 backgroundColor: kPurpleColor,
                 child: IconButton(
                   onPressed: () async {
-                    isLoading.value = true;
-                    var status = await Permission.storage.status;
-                    if (!status.isGranted) {
-                      await Permission.storage.request();
-                    }
-                    Directory? baseStorage;
-                    if (Platform.isAndroid) {
-                      baseStorage = await getExternalStorageDirectory();
-                    } else if (Platform.isIOS) {
-                      baseStorage = await getApplicationDocumentsDirectory();
-                    }
-                    if (baseStorage == null) return;
-                    var task = DownloadTask(
-                      url: kPdfUrl,
-                      filename: '${DateTime.now().millisecondsSinceEpoch}.pdf',
-                      directory: '',
-                    );
-                    final completedTask = await FileDownloader().download(task);
-                    if (completedTask.status == TaskStatus.complete) {
-                      debugPrint('downloaded');
-                      debugPrint("Download Path ${completedTask.task.directory}");
-                    }
-                    await FileDownloader().openFile(task: task);
-                    isLoading.value = false;
+                    _downloadFile(context);
                   },
                   icon: const Icon(Icons.download),
                   color: kPrimaryColor,
@@ -94,5 +78,70 @@ class PdfPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _downloadFile(BuildContext context) async {
+    isLoading.value = true;
+    var status = await Permission.storage.status;
+    if (!status.isGranted) {
+      await Permission.storage.request();
+    }
+    final localPath = (await _findLocalPath())!;
+    final savedDir = Directory(localPath);
+    bool hasExisted = await savedDir.exists();
+    if (!hasExisted) {
+      savedDir.create();
+    }
+    var client = http.Client();
+    try {
+      var response = await client.get(Uri.parse(kPdfUrl));
+      if (response.statusCode == 200) {
+        File file = File("${savedDir.path}/downloaded_file.pdf");
+        await file.writeAsBytes(response.bodyBytes);
+        await _saveFilePath(file.path);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('File downloaded successfully'),
+          ),
+        );
+        debugPrint("File downloaded successfully: ${file.path}");
+      } else {
+        debugPrint("Failed to download file.: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("Error during download: $e");
+    } finally {
+      client.close();
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> _saveFilePath(String path) async {
+    SharedPreferences pref = await SharedPreferences.getInstance();
+    await pref.setString('downloaded_file_path', path);
+  }
+
+  Future<String?> _getFilePath() async {
+    SharedPreferences pref = await SharedPreferences.getInstance();
+    return pref.getString('downloaded_file_path');
+  }
+
+  Future<void> _shareFile() async {
+    String? filePath = await _getFilePath();
+    if (filePath != null) {
+      // ignore: deprecated_member_use
+      await Share.shareFiles([filePath]);
+    } else {
+      debugPrint('File path not found in shared preferences');
+    }
+  }
+
+  Future<String?> _findLocalPath() async {
+    if (Platform.isAndroid) {
+      return "/sdcard/download";
+    } else {
+      var directory = await getApplicationDocumentsDirectory();
+      return '${directory.path}${Platform.pathSeparator}Download';
+    }
   }
 }

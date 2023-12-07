@@ -45,7 +45,7 @@ class ErrorBody extends StatelessWidget {
 }
 
 class PdfBody extends StatelessWidget {
-  PdfBody({
+  const PdfBody({
     super.key,
     required this.size,
     required this.isErrored,
